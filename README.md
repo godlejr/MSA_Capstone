@@ -581,8 +581,8 @@ public class ApiTestApplication {
 ## Gateway
 + gateway 및 virtualService 생성
 
-```
-
+	
+```sql
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << EOF
 > apiVersion: networking.istio.io/v1alpha3
 > kind: VirtualService
@@ -608,7 +608,7 @@ virtualservice.networking.istio.io/mac-delivery-order created
 	
 - 서비스 호출 및 VirtualService가 정상적으로 서비스 되고 있음을 확인
 
-```
+```sql
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << EOF
 > apiVersion: networking.istio.io/v1alpha3
 > kind: Gateway
@@ -628,7 +628,7 @@ root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << 
 gateway.networking.istio.io/mac-delivery-order created
 ```
 
-```
+```sql
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl -n istio-system get service/istio-ingressgateway
 NAME                   TYPE           CLUSTER-IP       EXTERNAL-IP                                                                  PORT(S)                                                                      AGE
 istio-ingressgateway   LoadBalancer   10.100.110.183   adf3a4a5deebf44f780686b6433420ff-1731053437.ca-central-1.elb.amazonaws.com   15021:30340/TCP,80:30720/TCP,443:32149/TCP,31400:30068/TCP,15443:30860/TCP   5m57s
