@@ -126,7 +126,7 @@ public class Order {
  
 ```java 
  
-@FeignClient(name="pay", url="http://localhost:8082")//, fallback = OrderListServiceFallback.class)
+@FeignClient(name="pay", url="http://localhost:8082")
 public interface OrderListService {
 
     @RequestMapping(method= RequestMethod.POST, path="/OrderLists")
@@ -175,5 +175,314 @@ public class PolicyHandler{
   
   }   
 ```
-
  
+ # CQRS
++ order 서비스(8081)와 orderList 서비스(8082)를 각각 실행
+
+```
+cd order
+mvn spring-boot:run
+```
+
+```
+cd orderList
+mvn spring-boot:run
+```
+
++ 맥도날드에 대한 order 요청
+
+```sql
+http localhost:8081/orders orderId=1 orderNum="상하이버거세트"
+```
+
+```sql
+HTTP/1.1 201
+Content-Type: application/json;charset=UTF-8
+Date: Thu, 07 Apr 2022 05:41:22 GMT
+Location: http://localhost:8081/orders/1
+Transfer-Encoding: chunked
+
+{
+    "_links": {
+        "order": {
+            "href": "http://localhost:8081/orders/1"
+        },
+        "self": {
+            "href": "http://localhost:8081/orders/1"
+        }
+    },
+    "orderId": 1,
+    "orderNum": "상하이버거세트",
+}
+```
+
++ 카프카 consumer 이벤트 모니터링
+
+```
+/usr/local/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic shopmall --from-beginning
+```
+
+```sql
+{"eventType":"Ordered","timestamp":"20220329041223","id":1,"orderId":1,"orderNum":"상하이버거세트","me":true}
+{"eventType":"OrderConfirmed","timestamp":"20220329041223","id":1,"orderId":1,"orderId":1,"orderNum":"상하이버거세트","me":true}
+```
+
++ orderView 서비스를 실행
+
+```
+cd orderView
+mvn spring-boot:run
+
+```
+
++ orderView의 Query Model을 통해 Order상태와 OrderConfirm상태를 `통합조회`
+
+- Query Model 은 발생한 모든 이벤트를 수신하여 자신만의 `View`로 데이터를 통합 조회 가능하게 함
+
+```
+http localhost:8090/orderStatuses
+```
+
+```
+HTTP/1.1 200
+Content-Type: application/hal+json;charset=UTF-8
+Date: Tue, 29 Mar 2022 04:13:00 GMT
+Transfer-Encoding: chunked
+
+{
+    "_embedded": {
+        "orderStatuses": [
+            {
+                "_links": {
+                    "orderStatus": {
+                        "href": "http://localhost:8090/orderStatuses/1"
+                    },
+                    "self": {
+                        "href": "http://localhost:8090/orderStatuses/1"
+                    }
+                },
+                "orderListId": 1,
+                "orderListStatus": "OrderConfirmed",
+                "orderStatus": "Ordered",
+                "orderId": 1,
+                "orderNum": "상하이버거세트",
+            }
+        ]
+    },
+    "_links": {
+        "profile": {
+            "href": "http://localhost:8090/profile/orderStatuses"
+        },
+        "search": {
+            "href": "http://localhost:8090/orderStatuses/search"
+        },
+        "self": {
+            "href": "http://localhost:8090/orderStatuses{?page,size,sort}",
+            "templated": true
+        }
+    },
+    "page": {
+        "number": 0,
+        "size": 20,
+        "totalElements": 1,
+        "totalPages": 1
+    }
+}
+```
+
++ orderView 에서 order, orderList, order 상태를 통합 조회 가능함
++ Compensation Transaction 테스트(cancel order)
++ Order 취소
+
+```
+http DELETE localhost:8081/orders/1
+```
+
+```
+HTTP/1.1 204
+Date: Thu, 07 Apr 2022 05:54:44 GMT
+```
+
++ order상태와 orderList상태 값을 확인
+
+```
+http localhost:8090/orderStatuses
+```
+
+```
+HTTP/1.1 200
+Content-Type: application/hal+json;charset=UTF-8
+Date: Thu, 07 Apr 2022 05:55:54 GMT
+Transfer-Encoding: chunked
+
+{
+    "_embedded": {
+        "orderStatuses": [
+            {
+                "_links": {
+                    "orderStatus": {
+                        "href": "http://localhost:8090/orderStatuses/1"
+                    },
+                    "self": {
+                        "href": "http://localhost:8090/orderStatuses/1"
+                    }
+                },
+                "orderListId": 1,
+                "orderListStatus": "OrderConfirmCancelled",
+                "orderStatus": "OrderCancelled",
+                "orderId": 1,
+                "orderNum": "상하이버거세트",
+            }
+        ]
+    },
+    "_links": {
+        "profile": {
+            "href": "http://localhost:8090/profile/orderStatuses"
+        },
+        "search": {
+            "href": "http://localhost:8090/orderStatuses/search"
+        },
+        "self": {
+            "href": "http://localhost:8090/orderStatuses{?page,size,sort}",
+            "templated": true
+        }
+    },
+    "page": {
+        "number": 0,
+        "size": 20,
+        "totalElements": 1,
+        "totalPages": 1
+    }
+}
+```
+
++ order cancel 정보가 orderView에 전달되어 `orderStatus`, `orderListStatus` 모두 cancelled 로 상태 변경 된 것을 통합 조회 가능함
+ 
+
+# Correlation / Compensation
+## Correlation Id
+
++ Correlation Id를 생성하는 로직은 common-module로 구성하였다. 해당 로직은, 모든 컴포넌트에 동일하게 적용하고 컴포넌트 간의 통신은 Json 기반의 Http request를 받았을 때, Filter 에서 생성
+
+```java
+
+@Slf4j
+public class CorrelationIdFilter extends OncePerRequestFilter {
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        CorrelationHttpHeaderHelper.prepareCorrelationParams(request);
+        CorrelationLoggerUtil.updateCorrelation();
+        filterChain.doFilter(request, response);
+        CorrelationLoggerUtil.clear();
+    }
+ }
+```
+
++ Filter에서는, 요청받은 request 를 확인하여, Correlation-Id가 존재할 경우, 해당 데이터를 식별자로 사용하고, 존재하지 않을 경우에는, 신규 Correlation Id를 생성한다. 관련 로직은 다음과 같다.
+
+```java
+@Slf4j
+public class CorrelationHttpHeaderHelper {
+
+    public static void prepareCorrelationParams(HttpServletRequest httpServletRequest) {
+        String currentCorrelationId = prepareCorrelationId(httpServletRequest);
+        setCorrelations(httpServletRequest, currentCorrelationId);
+        log.debug("Request Correlation Parameters : ");
+        CorrelationHeaderField[] headerFields = CorrelationHeaderField.values();
+        for (CorrelationHeaderField field : headerFields) {
+            String value = CorrelationHeaderUtil.get(field);
+            log.debug("{} : {}", field.getValue(), value);
+        }
+    }
+
+    private static String prepareCorrelationId(HttpServletRequest httpServletRequest) {
+        String currentCorrelationId = httpServletRequest.getHeader(CorrelationHeaderField.CORRELATION_ID.getValue());
+        if (currentCorrelationId == null) {
+            currentCorrelationId = CorrelationContext.generateId();
+            log.trace("Generated Correlation Id: {}", currentCorrelationId);
+        } else {
+            log.trace("Incoming Correlation Id: {}", currentCorrelationId);
+        }
+        return currentCorrelationId;
+    }
+} 
+```
+
+## Compensation
+
++ `Correlation Id` 정보를 기반으로 kafka를 이용한 비동기방식의 Compensation Transaction 처리
+```java
+
+@Component
+  public class MessageProducer {
+    @Autowired
+    private KafkaTemplate<String, Message> messageKafkaTemplate;
+
+    @Value(value = "${message.topic.name}")
+    private String messageTopicName;
+
+    public void sendMessage(Message message) {
+        ListenableFuture<SendResult<String, Message>> future = messageKafkaTemplate.send(messageTopicName, message);
+
+        future.addCallback(new ListenableFutureCallback<SendResult<String, Message>>() {
+            @Override
+            public void onSuccess(SendResult<String, Message> result) {
+                Message g = result.getProducerRecord().value();
+                System.out.println("Sent message=[" + g.toString() + "] with offset=[" + result.getRecordMetadata().offset() + "]");
+            }
+
+            @Override
+            public void onFailure(Throwable ex) {
+                // needed to do compensation transaction.
+                System.out.println( "Unable to send message=[" + message.toString() + "] due to : " + ex.getMessage());
+            }
+        });
+    }
+}
+```
+
+```java
+
+
+@Component
+public class MessageConsumer {
+
+    @KafkaListener(topics = "${message.topic.name}", containerFactory = "messageKafkaListenerContainerFactory")
+    public void messageListener(Message message, Acknowledgment ack) {
+        try {
+            System.out.println("----Received Message----");
+            System.out.println("id: " + message.getName());
+            System.out.println("act: " + message.getMsg());
+
+            ack.acknowledge();
+        } catch (Exception e) {
+            // 에러 처리
+        }
+    }
+}
+
+```
+
+```
+// Producer Log
+2022-04-07 06:36:21.665  INFO 15382 --- [nio-8081-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2022-04-07 06:36:21.665  INFO 15382 --- [nio-8081-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2022-04-07 06:36:21.668  INFO 15382 --- [nio-8081-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
+2022-04-07 06:36:07.604  INFO 15382 --- [nio-8081-exec-4] o.a.k.clients.producer.ProducerConfig    : ProducerConfig values: 
+	...
+022-04-07 06:37:07.625  INFO 15382 --- [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka startTimeMs: 1648493227624
+2022-04-07 06:37:07.689  INFO 15382 --- [ad | producer-1] org.apache.kafka.clients.Metadata        : [Producer clientId=producer-1] Cluster ID: PrON0srhTnuKsswe92XNA
+Sent message=[test, 2022040711111] with offset=[10]
+
+```
+
+```
+// Consumer Log
+----Received Message----
+id: 2022040711111
+act: test
+```
+ 
+
