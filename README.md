@@ -84,7 +84,7 @@ MSA 캡스톤
  
  
  
-```diff
+```java
 import org.springframework.beans.BeanUtils;
 
 @Entity
@@ -122,11 +122,9 @@ public class Order {
 * 고객이 메뉴를 선택하여 주문 요청한다.
 * 결제서비스를 호출하기위해 FeinClient를 이용하여 인터페이스(Proxy)를 구현한다.
 * 주문 요청을 받은 직후(`@PostPersist`) 결제(Pay)를 요청하도록 처리한다.
-```
+
  
-```
-// PaymentService.java
- 
+```java 
  
 @FeignClient(name="pay", url="http://localhost:8082")//, fallback = OrderListServiceFallback.class)
 public interface OrderListService {
@@ -135,8 +133,47 @@ public interface OrderListService {
     public void pay(@RequestBody OrderList OrderList);
 
  
+
+```
+  
++ 서비스 호출흐름(Async)<p>
+* 결제가 완료되면 주문 수락시 주문 내용(메뉴, 가격, 정보 등) 맥도날드 상인에게 전달하는 행위는 비동기식으로 처리되, `주문 상태의 변경이 블로킹 되지 않도록 처리`
+* 이를 위해 결제과정에서 기록을 남기고 승인정보를 `Kafka`로 전달한다.
+   
+ 
+```java
+
+@Entity
+@Table(name="Payment_table")
+public class Payment {
+
+ 
+   @PrePersist
+    public void onPrePersist(){
+      	 PaymentApproved paymentApproved = new PaymentApproved();
+        BeanUtils.copyProperties(this, paymentApproved);
+        paymentApproved.publishAfterCommit();
+    }
+
+}
+
+```
+
 * 주문관리(OrderList)에서는 결제 승인 Event를 수신해 PolicyHandler에서 후행 작업을 처리한다.
 * 맥도날드 상인은 주문정보를 수락하고 요리를 하고 배달한다.
 
+```java
+
+@Service
+public class PolicyHandler{
+    @StreamListener(KafkaProcessor.INPUT)
+    public void wheneverPaymentApproved_ConfirmAllocation(@Payload PaymentApproved paymentApproved){
+
+        if(!paymentApproved.validate()) return;
+
+        System.out.println("주문 접수 완료  : " + paymentApproved.toJson() + "\n\n");
+  
+  }   
 ```
+
  
