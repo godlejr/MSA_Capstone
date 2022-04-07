@@ -366,7 +366,6 @@ Transfer-Encoding: chunked
 
 ```java
 
-@Slf4j
 public class CorrelationIdFilter extends OncePerRequestFilter {
 
     @Override
@@ -383,7 +382,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 + Filter에서는, 요청받은 request 를 확인하여, Correlation-Id가 존재할 경우, 해당 데이터를 식별자로 사용하고, 존재하지 않을 경우에는, 신규 Correlation Id를 생성한다. 관련 로직은 다음과 같다.
 
 ```java
-@Slf4j
+
 public class CorrelationHttpHeaderHelper {
 
     public static void prepareCorrelationParams(HttpServletRequest httpServletRequest) {
@@ -487,7 +486,7 @@ act: test
  
 
 
-# Req / Resp 
+# Req & Res
 * Feign Client
 
 * `Interface 선언`을 통해 자동으로 Http Client 생성
