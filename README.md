@@ -486,3 +486,95 @@ act: test
 ```
  
 
+
+# Req / Resp 
+* Feign Client
+
+* `Interface 선언`을 통해 자동으로 Http Client 생성
+* 선언적 Http Client란, Annotation만으로 Http Client를 만들수 있고, 이를 통해서 원격의 Http API호출이 가능
+ 
++ Dependency 추가
+
+```java
+    
+    /** feign client*/
+    <dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-starter-openfeign</artifactId>
+    </dependency>
+    ...
+
+```
+
++ Controller
+```java
+
+@RestController
+@RequiredArgsConstructor
+public class MacDeliveryFeignController {
+
+    private final MacDeliveryFeignService MacDeliveryFeignService;
+
+    @GetMapping(value = "/v1/github/{owner}/{repo}")
+    public List<Contributor> getMacDeliveryContributors(@PathVariable String owner , @PathVariable String repo){
+        return MacDeliveryFeignService.getContributor(owner,repo);
+    }
+}
+
+```
+
++ Service
+```java
+@Service
+public class MacDeliveryFeignService {
+
+  @Autowired
+  private MacDeliveryFeignClient macDeliveryFeignClient;
+
+  public List<Contributor> getContributor(String owner, String repo) {
+    List<Contributor> contributors = macDeliveryFeignClient.getContributor(owner, repo);
+    return contributors;
+  }
+}
+
+```
+
++ FeignClient Interface
+```java
+
+@FeignClient(name="feign", url="https://api.github.com/repos",configuration = Config.class)
+public interface MacDeliveryFeignClient {
+    @RequestMapping(method = RequestMethod.GET , value = "/{owner}/{repo}/contributors")
+    List<Contributor> getContributor(@PathVariable("owner") String owner, @PathVariable("repo") String repo);
+}
+
+
+```
+
++ DTO
+```java
+
+@Data
+public class Contributor {
+    String login;
+    String id;
+    String type;
+    String site_admin;
+}	
+```
+	
+	
++ `@EnableFeignClients` Set
+```java
+
+@EnableFeignClients
+@SpringBootApplication
+public class ApiTestApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ApiTestApplication.class, args);
+    }
+
+}
+
+```
