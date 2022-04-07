@@ -409,7 +409,7 @@ public class CorrelationHttpHeaderHelper {
 } 
 ```
 
-## Compensation
+# Compensation
 
 + `Correlation Id` 정보를 기반으로 kafka를 이용한 비동기방식의 Compensation Transaction 처리
 ```java
@@ -486,7 +486,7 @@ act: test
  
 
 
-# Req & Res
+# Req & Resp
 * Feign Client
 
 * `Interface 선언`을 통해 자동으로 Http Client 생성
@@ -578,7 +578,7 @@ public class ApiTestApplication {
 
 ```
 
-## Gateway
+# Gateway
 + gateway 및 virtualService 생성
 
 	
@@ -606,8 +606,6 @@ root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << 
 virtualservice.networking.istio.io/mac-delivery-order created
 ```
 	
-- 서비스 호출 및 VirtualService가 정상적으로 서비스 되고 있음을 확인
-
 ```sql
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << EOF
 > apiVersion: networking.istio.io/v1alpha3
@@ -627,6 +625,8 @@ root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << 
 > EOF
 gateway.networking.istio.io/mac-delivery-order created
 ```
+
+- 서비스 호출 및 VirtualService가 정상적으로 서비스 되고 있음을 확인
 
 ```sql
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl -n istio-system get service/istio-ingressgateway
