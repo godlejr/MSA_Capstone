@@ -582,7 +582,7 @@ public class ApiTestApplication {
 + gateway 및 virtualService 생성
 
 	
-```sql
+```yaml
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << EOF
 > apiVersion: networking.istio.io/v1alpha3
 > kind: VirtualService
@@ -606,7 +606,7 @@ root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << 
 virtualservice.networking.istio.io/mac-delivery-order created
 ```
 	
-```sql
+```yaml
 root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl apply -f - << EOF
 > apiVersion: networking.istio.io/v1alpha3
 > kind: Gateway
@@ -633,3 +633,207 @@ root@labs--970387545:/home/project/personal/istio-1.11.3# kubectl -n istio-syste
 NAME                   TYPE           CLUSTER-IP       EXTERNAL-IP                                                                  PORT(S)                                                                      AGE
 istio-ingressgateway   LoadBalancer   10.100.110.183   adf3a4a5deebf44f780686b6433420ff-1731053437.ca-central-1.elb.amazonaws.com   15021:30340/TCP,80:30720/TCP,443:32149/TCP,31400:30068/TCP,15443:30860/TCP   5m57s
 ```
+
+	
+# Deploy / Pipeline
+## Deploy
+	
++ Kubernetes용 service.yaml, deployment.yaml 을 작성하고 Kubernetes에 Deploy
+
+- service.yaml
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: app
+```
+
+- deployment.yaml
+	
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      containers:
+        - name: app
+          image: 979050235289.dkr.ecr.ca-central-1.amazonaws.com/user16-app:v1
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: '/actuator/health'
+              port: 8080
+            initialDelaySeconds: 10
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: '/actuator/health'
+              port: 8080
+            initialDelaySeconds: 120
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 5
+```
+
+
+
+## PipeLine 
+각 구현체들은 각자의 source repository 에 구성되었고, 사용한 CI/CD는 buildspec.yml을 이용한 AWS codebuild를 사용
+
+- CodeBuild 프로젝트를 생성하고 AWS_ACCOUNT_ID, KUBE_URL, KUBE_TOKEN 환경 변수 세팅
+#### CodeBuild 에서 EKS 연결
+
+- Service Account 생성
+
+```yaml
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eks-admin
+  namespace: kube-system
+EOF
+
+```
+
+-   ClusterRoleBinding 생성
+
+```yaml
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: eks-admin
+  namespace: kube-system
+EOF
+```
+
+- SA로 EKS 접속 토큰 가져오기
+
+```sql
+kubectl -n kube-system describe secret eks-admin
+```
+![image](https://user-images.githubusercontent.com/24773549/162341509-2249b567-6379-49ab-8621-d14b8e8c3cd8.png)
+	
+```yaml
+#buildspec.yml 
+
+version: 0.2
+
+env:
+  variables:
+    _PROJECT_NAME1: "user16-app"
+    _PROJECT_NAME2: "user16-customer"
+    _PROJECT_NAME3: "user16-pay"
+    _PROJECT_NAME4: "user16-store"
+    _PROJECT_NAME1_1: "app"
+    _PROJECT_NAME2_1: "customer"
+    _PROJECT_NAME3_1: "pay"
+    _PROJECT_NAME4_1: "store"
+
+phases:
+  install:
+    runtime-versions:
+      java: corretto8
+      docker: 18
+    commands:
+      - echo install kubectl
+      - curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+      - chmod +x ./kubectl
+      - mv ./kubectl /usr/local/bin/kubectl
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - echo $_PROJECT_NAME
+      - echo $AWS_ACCOUNT_ID
+      - echo $AWS_DEFAULT_REGION
+      - echo $CODEBUILD_RESOLVED_SOURCE_VERSION
+      - echo start command
+      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...
+
+      - cd uber/$_PROJECT_NAME1_1
+      - mvn package -Dmaven.test.skip=true
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME1:$CODEBUILD_RESOLVED_SOURCE_VERSION  .
+
+      - cd ../$_PROJECT_NAME2_1
+      - mvn package -Dmaven.test.skip=true
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME2:$CODEBUILD_RESOLVED_SOURCE_VERSION  .
+
+      - cd ../$_PROJECT_NAME3_1
+      - mvn package -Dmaven.test.skip=true
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME3:$CODEBUILD_RESOLVED_SOURCE_VERSION  .
+
+      - cd ../$_PROJECT_NAME4_1
+      - mvn package -Dmaven.test.skip=true
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME4:$CODEBUILD_RESOLVED_SOURCE_VERSION  .
+
+      - cd ../../
+  post_build:
+    commands:
+      - echo Pushing the Docker image...
+
+      - cd uber/$_PROJECT_NAME1_1
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME1:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+      - cd ../$_PROJECT_NAME2_1
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME2:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+      - cd ../$_PROJECT_NAME3_1
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME3:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+      - cd ../$_PROJECT_NAME4_1
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$_PROJECT_NAME4:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+      
+      - cd ../../
+      
+      - echo connect kubectl
+      - kubectl config set-cluster k8s --server="$KUBE_URL" --insecure-skip-tls-verify=true
+      - kubectl config set-credentials admin --token="$KUBE_TOKEN"
+      - kubectl config set-context default --cluster=k8s --user=admin
+      - kubectl config use-context default
+
+```
+	
+- codebuild 실행
+- codebuild 프로젝트 및 빌드 이력
+![image](https://user-images.githubusercontent.com/24773549/162342776-90c3ee58-993a-4193-9ee3-9dee863f7d7f.png)
+
+- codebuild 빌드 내역 
+![image](https://user-images.githubusercontent.com/24773549/162343187-888f5400-ab2c-492c-9976-61ef8bda4b98.png)
+
+	
