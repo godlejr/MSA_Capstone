@@ -1210,5 +1210,50 @@ Hibernate:
     )
 ```
 
+# Autoscaling
++ 기존 mac delivery store deploy에 Autoscale 설정 및 horizontalpodautoscaler, hpa 확인
 	
+```
+kubectl autoscale deployment mac-delivery-store --cpu-percent=50 --min=1 --max=10
+kubectl get horizontalpodautoscaler
+
+NAME                 REFERENCE                       TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+mac-delivery-store   Deployment/mac-delivery-store   <unknown>/50%   1         10        0          1s
+```
+
+	
++ 테스트용 로드 제너레이터 확인 및 접속
+
+```
+kubectl get pod siege
+kubectl exec -it pod/siege-75d5587bf6-pqn2v -- /bin/bash
+```
+
++ 테스트용 로드 제너레이팅 전 상태
+
+```
+watch -d -n 1 kubectl get pod
+```
+
+![image](https://user-images.githubusercontent.com/24773549/162364365-e3ca821f-d8ec-48f2-a22a-95d767421194.png)
+
+
++ 테스트용 로드 제너레이팅 후 상태
+
+
+```
+siege -c30 -t30S -v http://mac-delivery-store	
+watch -d -n 1 kubectl get pod
+```
+
+- 부하 완료
+
+![image](https://user-images.githubusercontent.com/24773549/162364637-da890482-2227-4156-9060-40754963c770.png)
+
+- Autoscaling 확인
+- 각 pod당 CPU는 최대 0.5core 이며 50%(0.25core)의 임계치를 넘은 것을 확인 가능 + `siege` 부하 발생 후 Autoscaling 되어 pod 의 개수가 2개로 늘어나고 있는 것이 확인
+
+![image](https://user-images.githubusercontent.com/24773549/162364603-80f4494e-7f00-4fa4-b4b9-cf5c7cd18501.png)
+
+
 
