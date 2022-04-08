@@ -212,7 +212,7 @@ Transfer-Encoding: chunked
         }
     },
     "orderId": 1,
-    "orderNum": "상하이버거세트",
+    "orderNum": "상하이버거세트",
 }
 ```
 
@@ -1254,6 +1254,110 @@ watch -d -n 1 kubectl get pod
 - 각 pod당 CPU는 최대 0.5core 이며 50%(0.25core)의 임계치를 넘은 것을 확인 가능 + `siege` 부하 발생 후 Autoscaling 되어 pod 의 개수가 2개로 늘어나고 있는 것이 확인
 
 ![image](https://user-images.githubusercontent.com/24773549/162364603-80f4494e-7f00-4fa4-b4b9-cf5c7cd18501.png)
+
+
+# Self Healing
+
++ `livenessProbe` 설정을 추가한 이미지 yaml 파일 작성
+
+```yaml
+#deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: store
+  labels:
+    app: store
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: store
+  template:
+    metadata:
+      labels:
+        app: store
+    spec:
+      containers:
+        - name: store
+          image: 979050235289.dkr.ecr.ca-central-1.amazonaws.com/user16-store:v1
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: '/actuator/health'
+              port: 8080
+            initialDelaySeconds: 15
+            timeoutSeconds: 2
+            successThreshold: 1
+            periodSeconds: 5
+            failureThreshold: 3
+```
+
+```
+kubectl apply -f deployment.yaml
+kubectl get svc
+```
+
+```
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+kubernetes           ClusterIP   10.100.0.1       <none>        443/TCP    28h
+store                ClusterIP   10.100.173.180   <none>        8080/TCP   1m
+```
+
++ 해당 서비스의 health 확인
+
+```
+http 10.100.173.180:8080/actuator/health
+```
+
+	
+```diff
+HTTP/1.1 200
+Content-Type: application/vnd.spring-boot.actuator.v2+json;charset=UTF-8
+Date: Fri, 08 Apr 2022 04:58:49 GMT
+Transfer-Encoding: chunked
+
+{
++    "status": "UP"
+}
+```
+
++ 서비스 down
+
+```
+http put 10.100.173.180:8080/actuator/down
+```
+
+```diff
+HTTP/1.1 200
+Content-Type: application/json;charset=UTF-8
+Date: Fri, 08 Apr 2022 04:59:30 GMT
+Transfer-Encoding: chunked
+
+{
+-    "status": "DOWN"
+}
+```
+
++ 서비스 down 이후에도 여전히 pod가 Running 중임을 확인 및 세부 로그 확인(describe)
+
+```
+kubectl get pod
+kubectl describe pod/mac-delivery-store-76d45569b4-6bvsz
+```
+
+```diff
+ + Normal   Killing    107s (x2 over 4m12s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Container mac-delivery-store failed liveness probe, will be restarted
+  Normal   Pulling    107s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Pulling image "979050235289.dkr.ecr.ca-central-1.amazonaws.com/user16-store:v1"
+  Normal   Created    106s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Created container mac-delivery-store
+  Normal   Started    106s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Started container mac-delivery-store
+  Normal   Pulled     106s                   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Successfully pulled image "979050235289.dkr.ecr.ca-central-1.amazonaws.com/user16-store:v1" in 274.024538ms
+
+```
+
++ livenessProbe가 5초에 한번씩 health check 수행하다가 unhealthy 발견 하여 `Warning` 발생
++ unhealthy 발견 즉시 `self-killing` & `healing` 수행한 것을 확인 가능
 
 
 
