@@ -837,3 +837,171 @@ phases:
 ![image](https://user-images.githubusercontent.com/24773549/162343187-888f5400-ab2c-492c-9976-61ef8bda4b98.png)
 
 	
+# Circuit Breaker
+
++ DestinationRule 생성
+
+```
+kubectl apply -f - << EOF
+  apiVersion: networking.istio.io/v1alpha3
+  kind: DestinationRule
+  metadata:
+    name: store
+  spec:
+    host: store
+    trafficPolicy:
+      outlierDetection:
+        consecutive5xxErrors: 1
+        interval: 1s
+        baseEjectionTime: 3m
+        maxEjectionPercent: 100
+EOF
+```
+
++ Circuit Breaker 테스트 환경 설정
+
+```
+kubectl scale deploy mac-delivery-order --replicas=3
+```
++ 새 터미널에서 Http Client 컨테이너를 설치하고, 접속한다.
+```
+kubectl create deploy siege --image=ghcr.io/acmexii/siege-nginx:latest
+kubectl get pod -o wide
+kubectl exec -it pod/siege-75d5587bf6-pqn2v -- /bin/bash
+```
+	
++ Circuit Breaker 동작 확인
+
+```diff
++root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+- HTTP/1.1 200 OK
+content-length: 39
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:14 GMT
+server: envoy
+x-envoy-upstream-service-time: 215
+
+store-67ff6476bb-ls9dw/192.168.33.74
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:30 GMT
+server: envoy
+x-envoy-upstream-service-time: 16
+
+store-67ff6476bb-6rzwc/192.168.82.163
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:31 GMT
+server: envoy
+x-envoy-upstream-service-time: 25
+
+store-67ff6476bb-sq452/192.168.12.147
+
+```
++ 새로운 터미널에서 마지막에 출력된 store 컨테이너로 접속하여 명시적으로 5xx 오류를 발생 시킨다.
+	
+```diff
+# 새로운 터미널 Open
+# 3개 중 하나의 컨테이너에 접속
+kubectl exec -it pod/store-67ff6476bb-ls9dw -c store -- /bin/sh
+#
+# httpie 설치 및 서비스 명시적 다운
+apk update
+apk add httpie
+- http PUT http://localhost:8080/actuator/down
+```
++ Siege로 접속한 이전 터미널에서 store 서비스로 접속해 3회 이상 호출해 본다.
+```
+http GET http://store:8080/actuator/health
+```
++ 아래 URL을 통해 3개 중 `2개`의 컨테이너만 서비스 됨을 확인한다.
+```diff
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+date: Tue, 29 Mar 2022 05:28:15 GMT
+server: envoy
+x-envoy-upstream-service-time: 13
+
++ store-67ff6476bb-6rzwc/192.168.82.163
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+date: Tue, 29 Mar 2022 05:28:16 GMT
+server: envoy
+x-envoy-upstream-service-time: 7
+
+- store-67ff6476bb-sq452/192.168.12.147
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+date: Tue, 29 Mar 2022 05:28:17 GMT
+server: envoy
+x-envoy-upstream-service-time: 12
+
++ store-67ff6476bb-6rzwc/192.168.82.163
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+date: Tue, 29 Mar 2022 05:28:19 GMT
+server: envoy
+x-envoy-upstream-service-time: 11
+
+- store-67ff6476bb-sq452/192.168.12.147
+```
++ Pool Ejection 타임(3’) 경과후엔 컨테이너 3개가 모두 동작됨이 확인된다.
+```
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 39
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:14 GMT
+server: envoy
+x-envoy-upstream-service-time: 215
+
++ store-67ff6476bb-ls9dw/192.168.33.74
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:28 GMT
+server: envoy
+x-envoy-upstream-service-time: 345
+
+- store-67ff6476bb-6rzwc/192.168.82.163
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 40
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:31 GMT
+server: envoy
+x-envoy-upstream-service-time: 311
+
+! store-67ff6476bb-sq452/192.168.12.147
+
+root@siege-75d5587bf6-pqn2v:/# http http://store:8080/actuator/echo
+HTTP/1.1 200 OK
+content-length: 39
+content-type: text/plain;charset=UTF-8
+Date: Fri, 08 Apr 2022 01:47:33 GMT
+server: envoy
+x-envoy-upstream-service-time: 10
+
++ store-67ff6476bb-ls9dw/192.168.33.74
+```	
+
