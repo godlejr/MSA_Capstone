@@ -1360,5 +1360,22 @@ kubectl describe pod/mac-delivery-store-76d45569b4-6bvsz
 + livenessProbe가 5초에 한번씩 health check 수행하다가 unhealthy 발견 하여 `Warning` 발생
 + unhealthy 발견 즉시 `self-killing` & `healing` 수행한 것을 확인 가능
 
+# Zero-downtime deploy(Readiness Probe)
++ 시간부족으로 못했으나 개념설명
 
+- Liveness probe는 컨테이너의 상태가 비정상이라고 판단하면 해당 Pod를 재시작한다
+- Readiness probe는 컨테이너가 비정상일 경우에는 해당 Pod를 사용 못 하게 하여 서비스등에서 제외한다. 가용성을 높이기 위함
+
+```yaml
+#예시 
+readinessProbe:
+  httpGet:
+   path: /readiness
+   port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
+
+- HTTP Probe를 통해 HTTP GET으로 /readiness URL로 5초마다 호출을 해서 HTTP 응답을 200(정상)으로 인식하지만
+- 해당 컨테이너를 정상으로 판단하고 200~300 범위를 벗어난 응답 코드를 받으면 `비정상으로 판단하여, 서비스 불가능한 상태로 인식해서 쿠버네티스 서비스에서 제외한다.`
 
