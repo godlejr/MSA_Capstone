@@ -861,7 +861,7 @@ EOF
 + Circuit Breaker 테스트 환경 설정
 
 ```
-kubectl scale deploy mac-delivery-order --replicas=3
+kubectl scale deploy store --replicas=3
 ```
 + 새 터미널에서 Http Client 컨테이너를 설치하고, 접속한다.
 ```
@@ -1004,4 +1004,179 @@ x-envoy-upstream-service-time: 10
 
 + store-67ff6476bb-ls9dw/192.168.33.74
 ```	
+
+# Config Map
+	
++ PVC 생성
+
+```yaml
+kubectl apply -f - << EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fs
+  labels:
+    app: test-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Mi
+EOF
+```
++ Secret 객체 생성
+	
+```yaml
+kubectl apply -f - << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-pass
+type: Opaque
+data:
+  password: YWRtaW4=  
+EOF
+```
+
++ 해당 Secret을 mac-delivery (store) Deployment에 설정
+![image](https://user-images.githubusercontent.com/24773549/162348649-e93461e5-09d7-42e9-8eda-9bd69650d035.png)
+	
+
++ MySQL 설치
+```yaml
+kubectl apply -f - << EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql
+  labels:
+    name: lbl-k8s-mysql
+spec:
+  containers:
+  - name: mysql
+    image: mysql:latest
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: mysql-pass
+          key: password
+    ports:
+    - name: mysql
+      containerPort: 3306
+      protocol: TCP
+    volumeMounts:
+    - name: k8s-mysql-storage
+      mountPath: /var/lib/mysql
+  volumes:
+  - name: k8s-mysql-storage
+    persistentVolumeClaim:
+      claimName: "fs"
+EOF
+
+kubectl expose pod mysql --port=3306
+```
+
++ Pod 에 접속하여 store orderdb 데이터베이스 공간을 만들어주고 데이터베이스가 잘 동작하는지 확인
+
+```sql
+# kubectl exec mysql -it -- bash
+root@mysql:/# echo $MYSQL_ROOT_PASSWORD
+admin
+root@mysql:/# mysql --user=root --password=$MYSQL_ROOT_PASSWORD
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 8
+Server version: 8.0.28 MySQL Community Server - GPL
+
+Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> create database orderdb;
+Query OK, 1 row affected (0.00 sec)
+
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| orderdb            |
+| performance_schema |
+| sys                |
++--------------------+
+5 rows in set (0.01 sec)
+```
+
++ Pod 삭제 후 재생성하고 다시 db에 접속하여 `영속성` 확인
+```yaml
+kubectl delete pod/mysql
+
+kubectl apply -f - << EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql
+  labels:
+    name: lbl-k8s-mysql
+spec:
+  containers:
+  - name: mysql
+    image: mysql:latest
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: mysql-pass
+          key: password
+    ports:
+    - name: mysql
+      containerPort: 3306
+      protocol: TCP
+    volumeMounts:
+    - name: k8s-mysql-storage
+      mountPath: /var/lib/mysql
+  volumes:
+  - name: k8s-mysql-storage
+    persistentVolumeClaim:
+      claimName: "fs"
+```
+	
+```sql
+# kubectl exec mysql -it -- bash
+root@mysql:/# echo $MYSQL_ROOT_PASSWORD
+admin
+root@mysql:/# mysql --user=root --password=$MYSQL_ROOT_PASSWORD
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 8
+Server version: 8.0.28 MySQL Community Server - GPL
+
+Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| orderdb            |
+| performance_schema |
+| sys                |
++--------------------+
+5 rows in set (0.01 sec)
+```
+
 
