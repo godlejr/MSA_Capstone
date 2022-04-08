@@ -1348,7 +1348,8 @@ kubectl describe pod/mac-delivery-store-76d45569b4-6bvsz
 ```
 
 ```diff
- + Normal   Killing    107s (x2 over 4m12s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Container mac-delivery-store failed liveness probe, will be restarted
+
++  Normal   Killing    107s (x2 over 4m12s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Container mac-delivery-store failed liveness probe, will be restarted
   Normal   Pulling    107s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Pulling image "979050235289.dkr.ecr.ca-central-1.amazonaws.com/user16-store:v1"
   Normal   Created    106s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Created container mac-delivery-store
   Normal   Started    106s (x3 over 6m36s)   kubelet, ip-192-168-67-172.ca-central-1.compute.internal  Started container mac-delivery-store
