@@ -1005,7 +1005,7 @@ x-envoy-upstream-service-time: 10
 + store-67ff6476bb-ls9dw/192.168.33.74
 ```	
 
-# Config Map
+# Config Map / Persustemce Volume
 	
 + PVC 생성
 
@@ -1040,6 +1040,7 @@ EOF
 ```
 
 + 해당 Secret을 mac-delivery (store) Deployment에 설정
+
 ![image](https://user-images.githubusercontent.com/24773549/162348649-e93461e5-09d7-42e9-8eda-9bd69650d035.png)
 	
 
@@ -1177,6 +1178,36 @@ mysql> show databases;
 | sys                |
 +--------------------+
 5 rows in set (0.01 sec)
+```
+	
+# Polyglot
++ payment MicroService의 경우 Database 'HSQL' 적용
+
+```maven
+	<dependency>
+	    <groupId>org.hsqldb</groupId>
+	    <artifactId>hsqldb</artifactId>
+	    <scope>runtime</scope>
+	</dependency>
+```
+
+```
+[INFO] >>> spring-boot-maven-plugin:2.1.9.RELEASE:run (default-cli) > test-compile @ payment >>>
+Downloading from central: https://repo.maven.apache.org/maven2/org/hsqldb/hsqldb/2.4.1/hsqldb-2.4.1.pom
+Downloaded from central: https://repo.maven.apache.org/maven2/org/hsqldb/hsqldb/2.4.1/hsqldb-2.4.1.pom (1.3 kB at 1.7 kB/s)
+Downloading from central: https://repo.maven.apache.org/maven2/org/hsqldb/hsqldb/2.4.1/hsqldb-2.4.1.jar
+
+	...
+	
+    drop table payment_table if exists Hibernate: 
+    drop sequence hibernate_sequence if exists Hibernate: create sequence hibernate_sequence start with 1 increment by 1
+Hibernate:     
+    create table payment_table (
+        pay_id bigint not null,
+        order_id bigint,
+        status varchar(255),
+        primary key (pay_id)
+    )
 ```
 
 
